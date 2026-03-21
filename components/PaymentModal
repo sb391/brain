@@ -11,6 +11,7 @@ import {
 import { X, Lock, Sparkles, Brain, TrendingUp, Shield } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
+import { trackPaymentSuccess } from '@/lib/analytics';
 
 interface PaymentModalProps {
   visible: boolean;
@@ -55,6 +56,7 @@ export default function PaymentModal({ visible, onClose, onSuccess }: PaymentMod
 
     setStep('success');
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void trackPaymentSuccess({ amount: 49, planName: 'full_insights' });
 
     Animated.spring(checkScale, { toValue: 1, friction: 4, tension: 100, useNativeDriver: true }).start();
 

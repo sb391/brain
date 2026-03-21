@@ -8,10 +8,11 @@ import {
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Zap, Brain, Target } from 'lucide-react-native';
+import { Zap, Brain, Target, Eye, Heart } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
+import { trackLandingView, trackStartTest } from '@/lib/analytics';
 
 const { width } = Dimensions.get('window');
 
@@ -25,6 +26,8 @@ export default function LandingScreen() {
   const iconFloat1 = useRef(new Animated.Value(0)).current;
   const iconFloat2 = useRef(new Animated.Value(0)).current;
   const iconFloat3 = useRef(new Animated.Value(0)).current;
+  const iconFloat4 = useRef(new Animated.Value(0)).current;
+  const iconFloat5 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -76,14 +79,21 @@ export default function LandingScreen() {
     float(iconFloat1, 0).start();
     float(iconFloat2, 400).start();
     float(iconFloat3, 800).start();
+    float(iconFloat4, 200).start();
+    float(iconFloat5, 600).start();
 
     return () => {
       pulse.stop();
     };
-  }, [fadeIn, slideUp, pulseAnim, iconFloat1, iconFloat2, iconFloat3]);
+  }, [fadeIn, slideUp, pulseAnim, iconFloat1, iconFloat2, iconFloat3, iconFloat4, iconFloat5]);
+
+  useEffect(() => {
+    void trackLandingView();
+  }, []);
 
   const handleStart = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void trackStartTest();
     router.push('/game');
   };
 
@@ -115,29 +125,35 @@ export default function LandingScreen() {
       >
         <View style={styles.iconRow}>
           <Animated.View style={[styles.featureIcon, styles.featureIconReaction, { transform: [{ translateY: iconFloat1 }] }]}>
-            <Zap size={22} color={Colors.amber} />
+            <Zap size={20} color={Colors.amber} />
+          </Animated.View>
+          <Animated.View style={[styles.featureIcon, { backgroundColor: 'rgba(96,165,250,0.15)' }, { transform: [{ translateY: iconFloat4 }] }]}>
+            <Eye size={20} color="#60A5FA" />
           </Animated.View>
           <Animated.View style={[styles.featureIcon, styles.featureIconMemory, { transform: [{ translateY: iconFloat2 }] }]}>
-            <Brain size={28} color={Colors.teal} />
+            <Brain size={26} color={Colors.teal} />
           </Animated.View>
           <Animated.View style={[styles.featureIcon, styles.featureIconLogic, { transform: [{ translateY: iconFloat3 }] }]}>
-            <Target size={22} color={Colors.amber} />
+            <Target size={20} color={Colors.amber} />
+          </Animated.View>
+          <Animated.View style={[styles.featureIcon, { backgroundColor: 'rgba(244,114,182,0.12)' }, { transform: [{ translateY: iconFloat5 }] }]}>
+            <Heart size={20} color="#F472B6" />
           </Animated.View>
         </View>
 
         <Text style={styles.title}>BrainScore</Text>
         <Text style={styles.titleAccent}>Arena</Text>
         <Text style={styles.subtitle}>
-          Test your reaction, memory & logic{'\n'}in under 45 seconds
+          10 dynamic tests across reaction, memory,{'\n'}focus, logic & more — under 75 seconds
         </Text>
 
         <View style={styles.statsRow}>
           <View style={styles.statBadge}>
-            <Text style={styles.statNumber}>3</Text>
+            <Text style={styles.statNumber}>10</Text>
             <Text style={styles.statLabel}>Tests</Text>
           </View>
           <View style={[styles.statBadge, styles.statBadgeCenter]}>
-            <Text style={styles.statNumber}>45s</Text>
+            <Text style={styles.statNumber}>75s</Text>
             <Text style={styles.statLabel}>Max Time</Text>
           </View>
           <View style={styles.statBadge}>

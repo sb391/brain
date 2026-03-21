@@ -12,6 +12,7 @@ import { Zap, Trophy, Swords } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Tiers, getTier } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
+import { trackChallengeOpened, trackStartTest } from '@/lib/analytics';
 
 const { width } = Dimensions.get('window');
 
@@ -32,6 +33,10 @@ export default function ChallengeScreen() {
   const ctaSlide = useRef(new Animated.Value(30)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const glowPulse = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    void trackChallengeOpened();
+  }, []);
 
   useEffect(() => {
     Animated.stagger(200, [
@@ -73,6 +78,7 @@ export default function ChallengeScreen() {
 
   const handleStart = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    void trackStartTest();
     router.replace('/game');
   };
 

@@ -5,6 +5,7 @@ import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { Colors } from "@/constants/colors";
+import { ensureAnalytics, setUserProps } from "@/lib/analytics";
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -31,6 +32,8 @@ function RootLayoutNav() {
 export default function RootLayout() {
   useEffect(() => {
     void SplashScreen.hideAsync();
+    void ensureAnalytics();
+    void setUserProps();
   }, []);
 
   return (
