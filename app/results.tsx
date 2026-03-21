@@ -97,6 +97,7 @@ export default function ResultsScreen() {
   const comingSoonSlide = useRef(new Animated.Value(40)).current;
   const ringProgress = useRef(new Animated.Value(0)).current;
   const glowPulse = useRef(new Animated.Value(0.4)).current;
+  const pendingTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const barAnims = useRef(
     (['reaction', 'memory', 'focus', 'logic', 'awareness', 'behavioral'] as const).map(() => new Animated.Value(0))
@@ -142,6 +143,16 @@ export default function ResultsScreen() {
     return `${base}?score=${totalScore}&tier=${tier}`;
   }, [totalScore, tier]);
 
+  const scheduleTimeout = useCallback((callback: () => void, delay: number) => {
+    const timeoutId = setTimeout(() => {
+      pendingTimeoutsRef.current = pendingTimeoutsRef.current.filter((id) => id !== timeoutId);
+      callback();
+    }, delay);
+
+    pendingTimeoutsRef.current.push(timeoutId);
+    return timeoutId;
+  }, []);
+
   const shareText = useMemo(() => {
     return `My BrainScore is ${totalScore}. I'm in the top ${estimatedPercentile}%. Can you beat me?`;
   }, [totalScore, estimatedPercentile]);
@@ -160,8 +171,8 @@ export default function ResultsScreen() {
     const message = `${shareText}\n${challengeUrl}`;
     await Clipboard.setStringAsync(message);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  }, [shareText, challengeUrl]);
+    scheduleTimeout(() => setCopied(false), 2500);
+  }, [shareText, challengeUrl, scheduleTimeout]);
 
   useEffect(() => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -187,18 +198,18 @@ export default function ResultsScreen() {
       }
     }, 16);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.parallel([
         Animated.spring(tierBadgeScale, { toValue: 1, friction: 5, tension: 100, useNativeDriver: true }),
         Animated.timing(tierBadgeFade, { toValue: 1, duration: 400, useNativeDriver: true }),
       ]).start();
     }, 800);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.timing(messageFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     }, 1200);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.parallel([
         Animated.timing(breakdownFade, { toValue: 1, duration: 500, useNativeDriver: true }),
         Animated.timing(breakdownSlide, { toValue: 0, duration: 500, useNativeDriver: true }),
@@ -212,28 +223,28 @@ export default function ResultsScreen() {
       })).start();
     }, 1600);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.parallel([
         Animated.timing(actionsFade, { toValue: 1, duration: 400, useNativeDriver: true }),
         Animated.timing(actionsSlide, { toValue: 0, duration: 400, useNativeDriver: true }),
       ]).start();
     }, 2200);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.parallel([
         Animated.timing(shareFade, { toValue: 1, duration: 500, useNativeDriver: true }),
         Animated.timing(shareSlide, { toValue: 0, duration: 500, useNativeDriver: true }),
       ]).start();
     }, 2600);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.parallel([
         Animated.timing(insightsFade, { toValue: 1, duration: 500, useNativeDriver: true }),
         Animated.timing(insightsSlide, { toValue: 0, duration: 500, useNativeDriver: true }),
       ]).start();
     }, 2000);
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.parallel([
         Animated.timing(comingSoonFade, { toValue: 1, duration: 600, useNativeDriver: true }),
         Animated.timing(comingSoonSlide, { toValue: 0, duration: 600, useNativeDriver: true }),
@@ -248,8 +259,13 @@ export default function ResultsScreen() {
     );
     glow.start();
 
-    return () => { clearInterval(countInterval); glow.stop(); };
-  }, [heroFade, heroScale, tierBadgeFade, tierBadgeScale, messageFade, breakdownFade, breakdownSlide, actionsFade, actionsSlide, ringProgress, barAnims, glowPulse, shareFade, shareSlide, insightsFade, insightsSlide, comingSoonFade, comingSoonSlide, totalScore, categoryScores]);
+    return () => {
+      clearInterval(countInterval);
+      pendingTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      pendingTimeoutsRef.current = [];
+      glow.stop();
+    };
+  }, [heroFade, heroScale, tierBadgeFade, tierBadgeScale, messageFade, breakdownFade, breakdownSlide, actionsFade, actionsSlide, ringProgress, barAnims, glowPulse, shareFade, shareSlide, insightsFade, insightsSlide, comingSoonFade, comingSoonSlide, totalScore, categoryScores, scheduleTimeout]);
 
   const handleViewInsights = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -315,13 +331,13 @@ export default function ResultsScreen() {
       Animated.timing(toastFade, { toValue: 1, duration: 300, useNativeDriver: true }),
       Animated.spring(toastSlide, { toValue: 0, friction: 8, tension: 100, useNativeDriver: true }),
     ]).start();
-    setTimeout(() => {
+    scheduleTimeout(() => {
       Animated.parallel([
         Animated.timing(toastFade, { toValue: 0, duration: 400, useNativeDriver: true }),
         Animated.timing(toastSlide, { toValue: -30, duration: 400, useNativeDriver: true }),
       ]).start(() => setToastVisible(false));
     }, 2500);
-  }, [toastFade, toastSlide]);
+  }, [toastFade, toastSlide, scheduleTimeout]);
 
   const scorePercentage = ringProgress.interpolate({
     inputRange: [0, 1],

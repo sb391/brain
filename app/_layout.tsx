@@ -1,15 +1,18 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
+import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Colors } from "@/constants/colors";
 import { ensureAnalytics, setUserProps } from "@/lib/analytics";
+import { BUILD_LABEL } from "@/constants/buildInfo";
+import { hasFirebaseConfig } from "@/lib/firebase";
 
-void SplashScreen.preventAutoHideAsync();
-
-const queryClient = new QueryClient();
+if (Platform.OS !== "web") {
+  void SplashScreen.preventAutoHideAsync();
+}
 
 function RootLayoutNav() {
   return (
@@ -31,17 +34,23 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   useEffect(() => {
-    void SplashScreen.hideAsync();
+    if (Platform.OS !== "web") {
+      void SplashScreen.hideAsync();
+    }
+
+    console.log("[Build]", BUILD_LABEL, {
+      firebaseConfigured: hasFirebaseConfig(),
+    });
     void ensureAnalytics();
     void setUserProps();
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
+    <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <StatusBar style="light" />
         <RootLayoutNav />
       </GestureHandlerRootView>
-    </QueryClientProvider>
+    </SafeAreaProvider>
   );
 }

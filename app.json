@@ -25,15 +25,15 @@
       "package": "app.rork.vjlxj7tu4wlg39n6rzfom"
     },
     "web": {
-"favicon": "./assets/images/favicon.png",
-"bundler": "metro",
-"output": "single"
-},
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
     "plugins": [
       [
         "expo-router",
         {
-          "origin": "https://rork.com/"
+          "origin": "https://brainscore.in"
         }
       ],
       "expo-font",

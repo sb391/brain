@@ -95,6 +95,8 @@ export default function GameScreen() {
   const reactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transientTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const transitionStartedRef = useRef(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
 
   const initTestRef = useRef<() => void>(() => {});
@@ -104,10 +106,22 @@ export default function GameScreen() {
 
   const currentTest = testQueue[testIdx] as GeneratedTest | undefined;
 
+  const scheduleTimeout = useCallback((callback: () => void, delay: number) => {
+    const timeoutId = setTimeout(() => {
+      transientTimeoutsRef.current = transientTimeoutsRef.current.filter((id) => id !== timeoutId);
+      callback();
+    }, delay);
+
+    transientTimeoutsRef.current.push(timeoutId);
+    return timeoutId;
+  }, []);
+
   const clearAllTimers = useCallback(() => {
     if (reactionTimeoutRef.current) { clearTimeout(reactionTimeoutRef.current); reactionTimeoutRef.current = null; }
     if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; }
     if (autoAdvanceRef.current) { clearTimeout(autoAdvanceRef.current); autoAdvanceRef.current = null; }
+    transientTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    transientTimeoutsRef.current = [];
   }, []);
 
   const startCountdownTimer = useCallback((durationMs: number) => {
@@ -143,6 +157,7 @@ export default function GameScreen() {
   const initTest = useCallback(() => {
     const test = testQueue[testIdx];
     if (!test) return;
+    transitionStartedRef.current = false;
     setPhase('test');
     setTestStartTime(Date.now());
     setSelectedOption(null);
@@ -175,6 +190,8 @@ export default function GameScreen() {
   initTestRef.current = initTest;
 
   const startTransition = useCallback(() => {
+    if (transitionStartedRef.current) return;
+    transitionStartedRef.current = true;
     clearAllTimers();
     setPhase('transition');
     transitionSlide.setValue(50);
@@ -184,7 +201,7 @@ export default function GameScreen() {
       Animated.timing(transitionOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
       Animated.spring(transitionSlide, { toValue: 0, friction: 8, tension: 80, useNativeDriver: true }),
     ]).start(() => {
-      setTimeout(() => {
+      scheduleTimeout(() => {
         Animated.timing(transitionOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
           initTestRef.current();
           fadeAnim.setValue(0);
@@ -192,7 +209,7 @@ export default function GameScreen() {
         });
       }, 700);
     });
-  }, [fadeAnim, transitionSlide, transitionOpacity, clearAllTimers]);
+  }, [fadeAnim, transitionSlide, transitionOpacity, clearAllTimers, scheduleTimeout]);
 
   const finishGame = useCallback(() => {
     const payload = JSON.stringify(results.length > 0 ? results : []);
@@ -303,7 +320,7 @@ export default function GameScreen() {
       setEarlyTapCount(p => p + 1);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.log('[Game] Early tap detected');
-      setTimeout(() => {
+      scheduleTimeout(() => {
         setEarlyTap(false);
         setSubPhase('wait');
       }, 1200);
@@ -314,7 +331,7 @@ export default function GameScreen() {
     const ms = Date.now() - reactionStart;
     setReactionMs(ms);
     completeTest(ms < 350, ms);
-  }, [subPhase, reactionStart, completeTest]);
+  }, [subPhase, reactionStart, completeTest, scheduleTimeout]);
 
   const handleMemoryInputChange = useCallback((text: string, index: number) => {
     if (text.length > 1 || subPhase === 'done') return;
@@ -419,14 +436,14 @@ export default function GameScreen() {
       const t = setTimeout(() => {
         setSubPhase('input');
         startCountdownTimer(MEMORY_INPUT_TIMEOUT);
-        setTimeout(() => inputRefs.current[0]?.focus(), 300);
+        scheduleTimeout(() => inputRefs.current[0]?.focus(), 300);
       }, MEMORY_SHOW_DURATION);
       const inputTimeout = setTimeout(() => {
         completeTestRef.current(false, MEMORY_SHOW_DURATION + MEMORY_INPUT_TIMEOUT);
       }, MEMORY_SHOW_DURATION + MEMORY_INPUT_TIMEOUT);
       return () => { clearTimeout(t); clearTimeout(inputTimeout); };
     }
-  }, [phase, subPhase, currentTest, startCountdownTimer]);
+  }, [phase, subPhase, currentTest, startCountdownTimer, scheduleTimeout]);
 
   useEffect(() => {
     if (phase !== 'test' || !currentTest) return;

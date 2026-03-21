@@ -13,11 +13,14 @@ const firebaseConfig = {
 let app: FirebaseApp | null = null;
 let analyticsInstance: Analytics | null = null;
 
+export function hasFirebaseConfig(): boolean {
+  return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
+}
+
 export function getFirebaseApp(): FirebaseApp | null {
   if (app) return app;
 
-  const hasConfig = firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId;
-  if (!hasConfig) {
+  if (!hasFirebaseConfig()) {
     console.log('[Firebase] Missing config — analytics disabled');
     return null;
   }
@@ -35,8 +38,7 @@ export function getFirebaseApp(): FirebaseApp | null {
 export async function getFirebaseAnalytics(): Promise<Analytics | null> {
   if (analyticsInstance) return analyticsInstance;
 
-  if (Platform.OS !== 'web') {
-    console.log('[Firebase] Analytics only supported on web');
+  if (Platform.OS !== 'web' || typeof window === 'undefined') {
     return null;
   }
 

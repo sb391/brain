@@ -1,6 +1,6 @@
 import { logEvent as firebaseLogEvent, setUserProperties } from 'firebase/analytics';
 import { Platform, Dimensions } from 'react-native';
-import { getFirebaseAnalytics } from './firebase';
+import { getFirebaseAnalytics, hasFirebaseConfig } from './firebase';
 
 type EventParams = Record<string, string | number | boolean | undefined>;
 
@@ -8,7 +8,7 @@ let analyticsReady = false;
 let pendingEvents: Array<{ name: string; params?: EventParams }> = [];
 
 async function ensureAnalytics() {
-  if (analyticsReady) return;
+  if (analyticsReady || Platform.OS !== 'web' || !hasFirebaseConfig()) return;
   const analytics = await getFirebaseAnalytics();
   if (analytics) {
     analyticsReady = true;
@@ -30,7 +30,7 @@ async function ensureAnalytics() {
 export async function logEvent(eventName: string, params?: EventParams): Promise<void> {
   console.log(`[Analytics] ${eventName}`, params ?? '');
 
-  if (Platform.OS !== 'web') return;
+  if (Platform.OS !== 'web' || !hasFirebaseConfig()) return;
 
   try {
     const analytics = await getFirebaseAnalytics();
@@ -47,7 +47,7 @@ export async function logEvent(eventName: string, params?: EventParams): Promise
 }
 
 export async function setUserProps(): Promise<void> {
-  if (Platform.OS !== 'web') return;
+  if (Platform.OS !== 'web' || !hasFirebaseConfig()) return;
 
   try {
     const analytics = await getFirebaseAnalytics();

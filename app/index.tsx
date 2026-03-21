@@ -10,6 +10,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Zap, Brain, Target, Eye, Heart } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BUILD_LABEL } from '@/constants/buildInfo';
 import { Colors } from '@/constants/colors';
 import * as Haptics from 'expo-haptics';
 import { trackLandingView, trackStartTest } from '@/lib/analytics';
@@ -30,6 +31,31 @@ export default function LandingScreen() {
   const iconFloat5 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    const float = (anim: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, {
+            toValue: -8,
+            duration: 2000,
+            delay,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 8,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+
+    const floatingLoops = [
+      float(iconFloat1, 0),
+      float(iconFloat2, 400),
+      float(iconFloat3, 800),
+      float(iconFloat4, 200),
+      float(iconFloat5, 600),
+    ];
+
     Animated.parallel([
       Animated.timing(fadeIn, {
         toValue: 1,
@@ -59,35 +85,16 @@ export default function LandingScreen() {
     );
     pulse.start();
 
-    const float = (anim: Animated.Value, delay: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(anim, {
-            toValue: -8,
-            duration: 2000,
-            delay,
-            useNativeDriver: true,
-          }),
-          Animated.timing(anim, {
-            toValue: 8,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-
-    float(iconFloat1, 0).start();
-    float(iconFloat2, 400).start();
-    float(iconFloat3, 800).start();
-    float(iconFloat4, 200).start();
-    float(iconFloat5, 600).start();
+    floatingLoops.forEach((loop) => loop.start());
 
     return () => {
       pulse.stop();
+      floatingLoops.forEach((loop) => loop.stop());
     };
   }, [fadeIn, slideUp, pulseAnim, iconFloat1, iconFloat2, iconFloat3, iconFloat4, iconFloat5]);
 
   useEffect(() => {
+    console.log('[Route] Landing render success', BUILD_LABEL);
     void trackLandingView();
   }, []);
 
@@ -183,6 +190,7 @@ export default function LandingScreen() {
           <Text style={styles.startButtonText}>Start Test</Text>
         </TouchableOpacity>
         <Text style={styles.tapHint}>Tap to begin</Text>
+        <Text style={styles.buildMarker}>{BUILD_LABEL}</Text>
       </Animated.View>
     </View>
   );
@@ -307,5 +315,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     marginTop: 12,
+  },
+  buildMarker: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 8,
+    opacity: 0.8,
+    textAlign: 'center' as const,
   },
 });
