@@ -1,3 +1,5 @@
+import { THEME_QUESTION_POOLS } from './themeQuestions';
+
 export type TestType =
   | 'reaction-color'
   | 'reaction-shape'
@@ -12,10 +14,14 @@ export type TestType =
 
 export type TestCategory = 'reaction' | 'memory' | 'focus' | 'logic' | 'awareness' | 'behavioral';
 
+export type QuestionTone = 'thinking' | 'fun' | 'recall' | 'quirky';
+
 export interface MCQQuestion {
   question: string;
   options: string[];
   correctIndex: number;
+  isJudgment?: boolean;
+  tone?: QuestionTone;
 }
 
 export interface StroopData {
@@ -199,7 +205,152 @@ function generateMemoryPattern(): PatternGridData {
   return { size, cells };
 }
 
-export function generateTestQueue(): GeneratedTest[] {
+export function generateTestQueue(themeId?: string, recentMcqIndices?: number[], recentBehavioralIndices?: number[]): GeneratedTest[] {
+  if (!themeId) {
+    return generateDefaultQueue();
+  }
+
+  const themeConfig = THEME_QUESTION_POOLS[themeId];
+  if (!themeConfig) {
+    console.log(`[GameData] Unknown theme '${themeId}', using default queue`);
+    return generateDefaultQueue();
+  }
+
+  console.log(`[GameData] Generating themed queue for: ${themeId}, pool size: ${themeConfig.mcqPool.length}`);
+  const queue: GeneratedTest[] = [];
+  const { mcqPool, behavioralPool: themeBehavioralPool, interactiveCount } = themeConfig;
+
+  const interactiveTests: GeneratedTest[] = [
+    { type: 'reaction-color', category: 'reaction', label: 'Color Reaction', iconType: 'zap' },
+    { type: 'reaction-shape', category: 'reaction', label: 'Quick Tap', iconType: 'zap' },
+    { type: 'memory-numbers', category: 'memory', label: 'Number Recall', iconType: 'brain', memoryNumbers: generateMemoryNumbers() },
+    { type: 'memory-pattern', category: 'memory', label: 'Pattern Recall', iconType: 'brain', memoryPattern: generateMemoryPattern() },
+    { type: 'stroop', category: 'focus', label: 'Color Focus', iconType: 'eye', stroop: generateStroop() },
+    { type: 'odd-one-out', category: 'focus', label: 'Odd One Out', iconType: 'eye', oddOneOut: generateOddOneOut() },
+  ];
+
+  const selectedInteractive = shuffle(interactiveTests).slice(0, interactiveCount);
+  queue.push(...selectedInteractive);
+
+  const behavioralCount = Math.min(themeBehavioralPool.length, themeId === 'know-yourself' || themeId === 'would-you-rather' ? 3 : 1);
+  const { selected: selectedBehavioral, indices: behavioralUsedIndices } = selectFreshItems(
+    themeBehavioralPool, behavioralCount, recentBehavioralIndices ?? []
+  );
+  selectedBehavioral.forEach(b => {
+    queue.push({ type: 'behavioral', category: 'behavioral', label: 'Your Style', iconType: 'heart', behavioral: b });
+  });
+
+  const mcqNeeded = 10 - queue.length;
+  const { selected: selectedMCQ, indices: mcqUsedIndices } = selectBalancedMCQs(
+    mcqPool, mcqNeeded, recentMcqIndices ?? []
+  );
+  console.log(`[GameData] Selected ${selectedMCQ.length} MCQs (needed ${mcqNeeded}), fresh indices: ${mcqUsedIndices.join(',')}`);
+
+  selectedMCQ.forEach(mcq => {
+    const correctOption = mcq.options[mcq.correctIndex];
+    const shuffledOptions = shuffle(mcq.options);
+    queue.push({
+      type: 'awareness',
+      category: 'awareness',
+      label: 'Quick Challenge',
+      iconType: 'globe',
+      mcq: {
+        question: mcq.question,
+        options: shuffledOptions,
+        correctIndex: shuffledOptions.indexOf(correctOption),
+        isJudgment: mcq.isJudgment,
+      },
+    });
+  });
+
+  lastUsedMcqIndices = mcqUsedIndices;
+  lastUsedBehavioralIndices = behavioralUsedIndices;
+
+  return shuffle(queue);
+}
+
+let lastUsedMcqIndices: number[] = [];
+let lastUsedBehavioralIndices: number[] = [];
+
+export function getLastUsedIndices(): { mcq: number[]; behavioral: number[] } {
+  return { mcq: lastUsedMcqIndices, behavioral: lastUsedBehavioralIndices };
+}
+
+function selectFreshItems<T>(
+  pool: T[],
+  count: number,
+  recentlyUsed: number[],
+): { selected: T[]; indices: number[] } {
+  const allIndices = pool.map((_, i) => i);
+  const fresh = allIndices.filter(i => !recentlyUsed.includes(i));
+  const stale = allIndices.filter(i => recentlyUsed.includes(i));
+
+  const shuffledFresh = shuffle(fresh);
+  const shuffledStale = shuffle(stale);
+  const prioritized = [...shuffledFresh, ...shuffledStale];
+
+  const pickedIndices = prioritized.slice(0, count);
+  const finalIndices = shuffle(pickedIndices);
+
+  console.log(`[GameData] selectFreshItems: pool=${pool.length}, need=${count}, fresh=${fresh.length}, stale=${stale.length}`);
+
+  return {
+    selected: finalIndices.map(i => pool[i]),
+    indices: finalIndices,
+  };
+}
+
+function selectBalancedMCQs(
+  pool: MCQQuestion[],
+  count: number,
+  recentlyUsed: number[],
+): { selected: MCQQuestion[]; indices: number[] } {
+  const toneTargets: { tone: QuestionTone; ratio: number }[] = [
+    { tone: 'thinking', ratio: 0.4 },
+    { tone: 'fun', ratio: 0.3 },
+    { tone: 'recall', ratio: 0.2 },
+    { tone: 'quirky', ratio: 0.1 },
+  ];
+
+  const byTone: Record<QuestionTone, number[]> = { thinking: [], fun: [], recall: [], quirky: [] };
+  pool.forEach((q, i) => {
+    const tone = q.tone ?? 'thinking';
+    byTone[tone].push(i);
+  });
+
+  const picked: number[] = [];
+
+  for (const { tone, ratio } of toneTargets) {
+    const needed = Math.max(1, Math.round(count * ratio));
+    const indices = byTone[tone];
+    const fresh = indices.filter(i => !recentlyUsed.includes(i));
+    const stale = indices.filter(i => recentlyUsed.includes(i));
+    const prioritized = [...shuffle(fresh), ...shuffle(stale)];
+    const available = prioritized.filter(i => !picked.includes(i));
+    picked.push(...available.slice(0, needed));
+  }
+
+  while (picked.length < count) {
+    const allIndices = pool.map((_, i) => i);
+    const remaining = allIndices.filter(i => !picked.includes(i));
+    const fresh = remaining.filter(i => !recentlyUsed.includes(i));
+    const stale = remaining.filter(i => recentlyUsed.includes(i));
+    const next = [...shuffle(fresh), ...shuffle(stale)];
+    if (next.length === 0) break;
+    picked.push(next[0]);
+  }
+
+  const finalIndices = shuffle(picked.slice(0, count));
+
+  console.log(`[GameData] selectBalancedMCQs: pool=${pool.length}, need=${count}, picked=${finalIndices.length}, tones: thinking=${byTone.thinking.length} fun=${byTone.fun.length} recall=${byTone.recall.length} quirky=${byTone.quirky.length}`);
+
+  return {
+    selected: finalIndices.map(i => pool[i]),
+    indices: finalIndices,
+  };
+}
+
+function generateDefaultQueue(): GeneratedTest[] {
   const queue: GeneratedTest[] = [];
 
   queue.push({ type: 'reaction-color', category: 'reaction', label: 'Color Reaction', iconType: 'zap' });
@@ -241,6 +392,18 @@ export function scoreMCQ(correct: boolean, timeMs: number, maxTimeMs: number): n
   if (!correct) return 10;
   const speedBonus = Math.max(0, 1 - timeMs / maxTimeMs);
   return Math.round(60 + speedBonus * 40);
+}
+
+export function scoreJudgmentMCQ(selectedIndex: number, bestIndex: number, timeMs: number): number {
+  const baseScore = 50;
+  const insightBonus = selectedIndex === bestIndex ? 20 : 0;
+  const thinkSec = timeMs / 1000;
+  let thinkBonus = 5;
+  if (thinkSec >= 2 && thinkSec < 4) thinkBonus = 15;
+  else if (thinkSec >= 4 && thinkSec < 9) thinkBonus = 30;
+  else if (thinkSec >= 9 && thinkSec < 13) thinkBonus = 20;
+  else if (thinkSec >= 13) thinkBonus = 10;
+  return Math.min(100, baseScore + insightBonus + thinkBonus);
 }
 
 export function scoreBehavioral(timeMs: number): number {

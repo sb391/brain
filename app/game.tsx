@@ -9,24 +9,29 @@ import {
   TextInput,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Zap, Brain, Target, Eye, Globe, Heart, Check, X, ChevronRight } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
 import {
   generateTestQueue,
+  getLastUsedIndices,
   scoreReaction,
   scoreMemoryNumbers,
   scoreMemoryPattern,
   scoreMCQ,
+  scoreJudgmentMCQ,
   scoreBehavioral,
 } from '@/constants/gameData';
 import type { GeneratedTest, TestResult, TestCategory } from '@/constants/gameData';
 import * as Haptics from 'expo-haptics';
+import { loadQuestionHistory, saveUsedQuestions, getRecentlyUsed } from '@/lib/questionTracker';
 
 const { width } = Dimensions.get('window');
 const TOTAL_TESTS = 10;
 const MCQ_TIME_LIMIT = 6000;
+const JUDGMENT_TIME_LIMIT = 15000;
+const THEMED_MCQ_TIME_LIMIT = 10000;
 const MEMORY_SHOW_DURATION = 2500;
 const MEMORY_INPUT_TIMEOUT = 8000;
 const PATTERN_SHOW_DURATION = 2000;
@@ -57,8 +62,11 @@ const CATEGORY_COLORS: Record<TestCategory, string> = {
 export default function GameScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { theme } = useLocalSearchParams<{ theme?: string }>();
 
-  const [testQueue] = useState<GeneratedTest[]>(() => generateTestQueue());
+  const [testQueue, setTestQueue] = useState<GeneratedTest[]>([]);
+  const [queueReady, setQueueReady] = useState(false);
+  const hasTrackedRef = useRef(false);
   const [phase, setPhase] = useState<Phase>('countdown');
   const [subPhase, setSubPhase] = useState<SubPhase>('wait');
   const [countdown, setCountdown] = useState(3);
@@ -190,7 +198,7 @@ export default function GameScreen() {
   initTestRef.current = initTest;
 
   const startTransition = useCallback(() => {
-    if (transitionStartedRef.current) return;
+    if (!queueReady || transitionStartedRef.current) return;
     transitionStartedRef.current = true;
     clearAllTimers();
     setPhase('transition');
@@ -209,13 +217,20 @@ export default function GameScreen() {
         });
       }, 700);
     });
-  }, [fadeAnim, transitionSlide, transitionOpacity, clearAllTimers, scheduleTimeout]);
+  }, [queueReady, fadeAnim, transitionSlide, transitionOpacity, clearAllTimers, scheduleTimeout]);
 
   const finishGame = useCallback(() => {
+    if (theme && !hasTrackedRef.current) {
+      hasTrackedRef.current = true;
+      const { mcq, behavioral } = getLastUsedIndices();
+      console.log(`[Game] Saving used question indices for theme '${theme}': mcq=${mcq.length}, behavioral=${behavioral.length}`);
+      void saveUsedQuestions(`mcq_${theme}`, mcq);
+      void saveUsedQuestions(`beh_${theme}`, behavioral);
+    }
     const payload = JSON.stringify(results.length > 0 ? results : []);
     console.log('[Game] Finishing game, navigating to results');
-    router.replace({ pathname: '/results', params: { data: payload } });
-  }, [results, router]);
+    router.replace({ pathname: '/results', params: { data: payload, theme: theme || '' } });
+  }, [results, router, theme]);
 
   const advanceToNext = useCallback(() => {
     clearAllTimers();
@@ -268,8 +283,15 @@ export default function GameScreen() {
       case 'trick-question':
       case 'reasoning':
       case 'awareness': {
-        score = scoreMCQ(isCorrect, timeMs, MCQ_TIME_LIMIT);
-        detail = isCorrect ? `Correct (${(timeMs / 1000).toFixed(1)}s)` : 'Incorrect';
+        const isJudgmentQ = currentTest.mcq?.isJudgment === true;
+        if (isJudgmentQ) {
+          score = scoreJudgmentMCQ(selectedOption ?? 0, currentTest.mcq?.correctIndex ?? 0, timeMs);
+          detail = 'Thoughtful choice';
+          isCorrect = true;
+        } else {
+          score = scoreMCQ(isCorrect, timeMs, theme ? THEMED_MCQ_TIME_LIMIT : MCQ_TIME_LIMIT);
+          detail = isCorrect ? `Correct (${(timeMs / 1000).toFixed(1)}s)` : 'Incorrect';
+        }
         break;
       }
       case 'behavioral': {
@@ -301,7 +323,7 @@ export default function GameScreen() {
     autoAdvanceRef.current = setTimeout(() => {
       advanceToNextRef.current();
     }, 1800);
-  }, [currentTest, subPhase, earlyTapCount, memoryInput, patternSelected, behavioralChoice, testIdx, showFeedbackOverlay]);
+  }, [currentTest, subPhase, earlyTapCount, memoryInput, patternSelected, behavioralChoice, testIdx, showFeedbackOverlay, selectedOption, theme]);
   completeTestRef.current = completeTest;
 
   const completeBehavioral = useCallback((choice: 'A' | 'B', timeMs: number) => {
@@ -394,11 +416,46 @@ export default function GameScreen() {
   // --- EFFECTS (all after callbacks) ---
 
   useEffect(() => {
+    let cancelled = false;
+    transitionStartedRef.current = false;
+    setQueueReady(false);
+    setCountdown(3);
+    setTestIdx(0);
+    setResults([]);
+    setPhase('countdown');
+    setSubPhase('wait');
+
+    async function initQueue() {
+      try {
+        const history = await loadQuestionHistory();
+        const recentMcq = getRecentlyUsed(history, `mcq_${theme ?? 'default'}`);
+        const recentBeh = getRecentlyUsed(history, `beh_${theme ?? 'default'}`);
+        console.log(`[Game] Loaded history for theme '${theme}': recentMcq=${recentMcq.length}, recentBeh=${recentBeh.length}`);
+        const queue = generateTestQueue(theme ?? undefined, recentMcq, recentBeh);
+        if (!cancelled) {
+          setTestQueue(queue);
+          setQueueReady(true);
+        }
+      } catch (e) {
+        console.log('[Game] Failed to load history, generating without tracker:', e);
+        const queue = generateTestQueue(theme ?? undefined);
+        if (!cancelled) {
+          setTestQueue(queue);
+          setQueueReady(true);
+        }
+      }
+    }
+
+    void initQueue();
+    return () => { cancelled = true; };
+  }, [theme]);
+
+  useEffect(() => {
     return () => clearAllTimers();
   }, [clearAllTimers]);
 
   useEffect(() => {
-    if (phase !== 'countdown') return;
+    if (phase !== 'countdown' || !queueReady) return;
     if (countdown <= 0) {
       startTransition();
       return;
@@ -411,7 +468,7 @@ export default function GameScreen() {
     Animated.timing(countdownOpacity, { toValue: 0.3, duration: 600, useNativeDriver: true }).start();
     const t = setTimeout(() => setCountdown(c => c - 1), 800);
     return () => clearTimeout(t);
-  }, [phase, countdown, countdownScale, countdownOpacity, startTransition]);
+  }, [phase, queueReady, countdown, countdownScale, countdownOpacity, startTransition]);
 
   useEffect(() => {
     if (phase !== 'test' || !currentTest) return;
@@ -436,7 +493,9 @@ export default function GameScreen() {
       const t = setTimeout(() => {
         setSubPhase('input');
         startCountdownTimer(MEMORY_INPUT_TIMEOUT);
+        scheduleTimeout(() => inputRefs.current[0]?.focus(), 50);
         scheduleTimeout(() => inputRefs.current[0]?.focus(), 300);
+        scheduleTimeout(() => inputRefs.current[0]?.focus(), 600);
       }, MEMORY_SHOW_DURATION);
       const inputTimeout = setTimeout(() => {
         completeTestRef.current(false, MEMORY_SHOW_DURATION + MEMORY_INPUT_TIMEOUT);
@@ -458,19 +517,21 @@ export default function GameScreen() {
       }, PATTERN_SHOW_DURATION + PATTERN_INPUT_TIMEOUT);
       return () => { clearTimeout(t); clearTimeout(inputTimeout); };
     }
-  }, [phase, subPhase, currentTest, startCountdownTimer]);
+  }, [phase, subPhase, currentTest, startCountdownTimer, theme]);
 
   useEffect(() => {
     if (phase !== 'test' || !currentTest) return;
     const isMCQ = ['stroop', 'odd-one-out', 'trick-question', 'reasoning', 'awareness'].includes(currentTest.type);
     if (isMCQ && subPhase === 'active') {
-      startCountdownTimer(MCQ_TIME_LIMIT);
+      const isJudgmentQ = currentTest.mcq?.isJudgment === true;
+      const timeLimit = isJudgmentQ ? JUDGMENT_TIME_LIMIT : (theme ? THEMED_MCQ_TIME_LIMIT : MCQ_TIME_LIMIT);
+      startCountdownTimer(timeLimit);
       const t = setTimeout(() => {
-        completeTestRef.current(false, MCQ_TIME_LIMIT);
-      }, MCQ_TIME_LIMIT);
+        completeTestRef.current(false, timeLimit);
+      }, timeLimit);
       return () => clearTimeout(t);
     }
-  }, [phase, subPhase, currentTest, startCountdownTimer]);
+  }, [phase, subPhase, currentTest, startCountdownTimer, theme]);
 
   useEffect(() => {
     if (phase !== 'test' || !currentTest) return;
@@ -484,12 +545,13 @@ export default function GameScreen() {
   }, [phase, subPhase, currentTest]);
 
   useEffect(() => {
+    if (!queueReady) return;
     Animated.timing(progressAnim, {
       toValue: (testIdx + (subPhase === 'done' ? 1 : 0)) / TOTAL_TESTS,
       duration: 400,
       useNativeDriver: false,
     }).start();
-  }, [testIdx, subPhase, progressAnim]);
+  }, [queueReady, testIdx, subPhase, progressAnim]);
 
   // --- RENDERERS ---
 
@@ -656,6 +718,7 @@ export default function GameScreen() {
                       maxLength={1}
                       textAlign="center"
                       selectionColor={Colors.teal}
+                      autoFocus={i === 0}
                       testID={`memory-input-${i}`}
                     />
                   )}
@@ -837,7 +900,7 @@ export default function GameScreen() {
 
   const renderMCQTest = () => {
     if (!currentTest?.mcq) return null;
-    const { question, options, correctIndex } = currentTest.mcq;
+    const { question, options, correctIndex, isJudgment: isJudgmentQ } = currentTest.mcq;
     const color = CATEGORY_COLORS[currentTest.category];
     return (
       <View style={styles.centerContent}>
@@ -854,15 +917,19 @@ export default function GameScreen() {
         <View style={styles.mcqOptions}>
           {options.map((option, i) => {
             const isDone = subPhase === 'done';
-            const isCorrect = i === correctIndex;
+            const isCorrectAnswer = i === correctIndex;
             const isSelected = selectedOption === i;
+            const showJudgmentSelected = isDone && isJudgmentQ && isSelected;
+            const showCorrectHighlight = isDone && !isJudgmentQ && isCorrectAnswer;
+            const showWrongHighlight = isDone && !isJudgmentQ && isSelected && !isCorrectAnswer;
             return (
               <TouchableOpacity
                 key={i}
                 style={[
                   styles.mcqOption,
-                  isDone && isCorrect && styles.mcqOptionCorrect,
-                  isDone && isSelected && !isCorrect && styles.mcqOptionWrong,
+                  showCorrectHighlight && styles.mcqOptionCorrect,
+                  showWrongHighlight && styles.mcqOptionWrong,
+                  showJudgmentSelected && styles.mcqOptionJudgmentSelected,
                 ]}
                 onPress={() => handleMCQAnswer(i)}
                 disabled={isDone}
@@ -871,22 +938,26 @@ export default function GameScreen() {
               >
                 <View style={[
                   styles.mcqBadge,
-                  isDone && isCorrect && { backgroundColor: Colors.greenGlow, borderColor: Colors.green },
-                  isDone && isSelected && !isCorrect && { backgroundColor: Colors.redGlow, borderColor: Colors.red },
+                  showCorrectHighlight && { backgroundColor: Colors.greenGlow, borderColor: Colors.green },
+                  showWrongHighlight && { backgroundColor: Colors.redGlow, borderColor: Colors.red },
+                  showJudgmentSelected && { backgroundColor: Colors.tealGlow, borderColor: Colors.teal },
                 ]}>
                   <Text style={[
                     styles.mcqBadgeText,
-                    isDone && isCorrect && { color: Colors.green },
-                    isDone && isSelected && !isCorrect && { color: Colors.red },
+                    showCorrectHighlight && { color: Colors.green },
+                    showWrongHighlight && { color: Colors.red },
+                    showJudgmentSelected && { color: Colors.teal },
                   ]}>{String.fromCharCode(65 + i)}</Text>
                 </View>
                 <Text style={[
                   styles.mcqOptionText,
-                  isDone && isCorrect && { color: Colors.green },
-                  isDone && isSelected && !isCorrect && { color: Colors.red },
+                  showCorrectHighlight && { color: Colors.green },
+                  showWrongHighlight && { color: Colors.red },
+                  showJudgmentSelected && { color: Colors.teal },
                 ]}>{option}</Text>
-                {isDone && isCorrect && <Check size={18} color={Colors.green} />}
-                {isDone && isSelected && !isCorrect && <X size={18} color={Colors.red} />}
+                {showCorrectHighlight && <Check size={18} color={Colors.green} />}
+                {showWrongHighlight && <X size={18} color={Colors.red} />}
+                {showJudgmentSelected && <Check size={18} color={Colors.teal} />}
               </TouchableOpacity>
             );
           })}
@@ -1054,6 +1125,7 @@ const styles = StyleSheet.create({
   mcqOption: { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: Colors.bgCardLight, borderRadius: 16, padding: 16, gap: 12, borderWidth: 1, borderColor: Colors.border },
   mcqOptionCorrect: { borderColor: Colors.green, backgroundColor: Colors.greenGlow },
   mcqOptionWrong: { borderColor: Colors.red, backgroundColor: Colors.redGlow },
+  mcqOptionJudgmentSelected: { borderColor: Colors.teal, backgroundColor: Colors.tealGlow },
   mcqBadge: { width: 32, height: 32, borderRadius: 10, backgroundColor: Colors.bgCard, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' as const, justifyContent: 'center' as const },
   mcqBadgeText: { fontSize: 13, fontWeight: '700' as const, color: Colors.textMuted },
   mcqOptionText: { fontSize: 16, fontWeight: '500' as const, color: Colors.textPrimary, flex: 1 },

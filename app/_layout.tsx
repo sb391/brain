@@ -24,6 +24,7 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="themes" />
       <Stack.Screen name="game" />
       <Stack.Screen name="results" />
       <Stack.Screen name="challenge" />

@@ -101,7 +101,7 @@ export default function LandingScreen() {
   const handleStart = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     void trackStartTest();
-    router.push('/game');
+    router.push('/themes');
   };
 
   return (
@@ -317,10 +317,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   buildMarker: {
+    marginTop: 10,
     fontSize: 11,
     color: Colors.textMuted,
-    marginTop: 8,
-    opacity: 0.8,
-    textAlign: 'center' as const,
   },
 });
